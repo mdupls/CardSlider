@@ -51,6 +51,12 @@ public class GridSliderView extends GridView {
     public boolean onTouchEvent(MotionEvent ev) {
         switch(ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
+                mSwiping = false;
+                mScrolling = false;
+
+                mMovementX = 0;
+                mMovementY = 0;
+
                 mStartX = (int) ev.getX();
                 mStartY = (int) ev.getY();
                 mSwipeView = getSwipeable(mStartX, mStartY);
@@ -63,7 +69,7 @@ public class GridSliderView extends GridView {
                 mMovementY = (int)ev.getY() - mStartY;
 
                 if(!mScrolling && !mSwiping) {
-                    mScrolling = Math.abs(mMovementY) > Math.abs(mMovementX) * 0.5f;
+                    mScrolling = Math.abs(mMovementY) > Math.abs(mMovementX) * 0.75f;
                     mSwiping = !mScrolling;
                 }
 
@@ -102,7 +108,7 @@ public class GridSliderView extends GridView {
     }
 
     private void up(MotionEvent ev) {
-        mSwipeView.animate().setDuration(200).alpha(1).translationX(0);
+        mSwipeView.animate().setDuration(100).alpha(1).translationX(0);
         mSwipeView.setElevation(0);
         mSwipeView = null;
     }
