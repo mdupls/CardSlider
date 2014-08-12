@@ -1,12 +1,13 @@
 package com.dupls.cardslider;
 
+import android.animation.Animator;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
-import android.view.ViewGroup;
+import android.widget.AbsListView;
 import android.widget.GridView;
 import android.widget.ImageView;
 
@@ -19,74 +20,143 @@ public class GridSliderView extends GridView {
     private int mMovementY;
     private int mStartX;
     private int mStartY;
-    private boolean mSwiping;
+    private boolean mCanSwipe;
+    private boolean mHasScrolledBeforeLiftingUp;
     private boolean mScrolling;
+
+    private VelocityTracker mVelocityTracker;
+    private OnScrollListener mWrappedOnScrollListener;
 
     public GridSliderView(Context context) {
         super(context);
+
+        init();
     }
 
     public GridSliderView(Context context, AttributeSet attrs) {
         super(context, attrs);
+
+        init();
     }
 
     public GridSliderView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+
+        init();
     }
 
     public GridSliderView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+
+        init();
     }
+
+    private void init() {
+        setOnScrollListener(mOnScrollListener);
+    }
+
+    private OnScrollListener mOnScrollListener = new OnScrollListener() {
+        @Override
+        public void onScrollStateChanged(AbsListView listView, int state) {
+            mScrolling = state != OnScrollListener.SCROLL_STATE_IDLE;
+            if (mScrolling) {
+                mHasScrolledBeforeLiftingUp = true;
+            }
+
+            if (mWrappedOnScrollListener != null) {
+                mWrappedOnScrollListener.onScrollStateChanged(listView, state);
+            }
+        }
+
+        @Override
+        public void onScroll(AbsListView listView, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
+            if (mWrappedOnScrollListener != null) {
+                mWrappedOnScrollListener.onScroll(listView, firstVisibleItem, visibleItemCount, totalItemCount);
+            }
+        }
+    };
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-//        switch(ev.getAction()) {
-//        }
-//
-//        return super.onInterceptTouchEvent(ev);
+        // Always intercept the touch events so that we can recognize horizontal swipes.
         return true;
     }
 
     @Override
+    protected void onScrollChanged(int l, int t, int oldl, int oldt) {
+        super.onScrollChanged(l, t, oldl, oldt);
+    }
+
+
+    @Override
     public boolean onTouchEvent(MotionEvent ev) {
-        switch(ev.getAction()) {
+        if (mVelocityTracker != null) {
+            mVelocityTracker.addMovement(ev);
+        }
+
+        switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                mSwiping = false;
-                mScrolling = false;
-
-                mMovementX = 0;
-                mMovementY = 0;
-
                 mStartX = (int) ev.getX();
                 mStartY = (int) ev.getY();
                 mSwipeView = getSwipeable(mStartX, mStartY);
-                if(mSwipeView != null) {
+                if (mSwipeView != null) {
                     mSwipeView.setElevation(3);
+
+                    mHasScrolledBeforeLiftingUp = false;
+                    mCanSwipe = false;
+
+                    mMovementX = 0;
+                    mMovementY = 0;
+
+                    mVelocityTracker = VelocityTracker.obtain();
+                    mVelocityTracker.addMovement(ev);
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
-                mMovementX = (int)ev.getX() - mStartX;
-                mMovementY = (int)ev.getY() - mStartY;
+                if (mSwipeView != null) {
+                    if (!mScrolling && !mHasScrolledBeforeLiftingUp) {
+                        mMovementX = (int) ev.getX() - mStartX;
+                        mMovementY = (int) ev.getY() - mStartY;
 
-                if(!mScrolling && !mSwiping) {
-                    mScrolling = Math.abs(mMovementY) > Math.abs(mMovementX) * 0.75f;
-                    mSwiping = !mScrolling;
-                }
+                        if (!mCanSwipe) {
+                            mCanSwipe = Math.abs(mMovementY) < Math.abs(mMovementX) * 0.75f;
+                        }
 
-                if(mSwiping && mSwipeView != null) {
-                    swipe(ev);
+                        if (mCanSwipe) {
+                            swipe(ev);
+                        }
+                    }
                 }
                 break;
+            case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP:
-                mSwiping = false;
-                mScrolling = false;
-                if(mSwipeView != null) {
-                    up(ev);
+
+                if (mSwipeView != null) {
+                    mVelocityTracker.computeCurrentVelocity(1000);
+                    float velocity = mVelocityTracker.getXVelocity();
+
+                    boolean delete = false;
+                    if(mCanSwipe) {
+                        if (Math.abs(velocity) > 200) {
+                            delete(velocity > 0 ? 1 : -1);
+                            delete = true;
+                        }
+                    }
+
+                    if(!delete) {
+                        up(ev);
+                    }
+
+                    mVelocityTracker.recycle();
+                    mVelocityTracker = null;
+
+                    mHasScrolledBeforeLiftingUp = false;
+                    mCanSwipe = false;
                 }
                 break;
         }
 
-        if(mSwiping) {
+        if (mCanSwipe) {
             return true;
         } else {
             return super.onTouchEvent(ev);
@@ -98,9 +168,9 @@ public class GridSliderView extends GridView {
 
         float alpha = 1;
         float x = mSwipeView.getTranslationX();
-        if(x < 0) {
+        if (x < 0) {
             alpha = 1 - (-x / mSwipeView.getWidth());
-        } else if(x > 0) {
+        } else if (x > 0) {
             alpha = 1 - (x / mSwipeView.getWidth());
         }
 
@@ -108,35 +178,54 @@ public class GridSliderView extends GridView {
     }
 
     private void up(MotionEvent ev) {
-        mSwipeView.animate().setDuration(100).alpha(1).translationX(0);
-        mSwipeView.setElevation(0);
-        mSwipeView = null;
+        float translationX = mSwipeView.getTranslationX();
+
+        if(Math.abs(translationX) / (mSwipeView.getWidth() / 2.0f) > 0.75f) {
+            delete(translationX > 0 ? 1 : -1);
+        } else {
+            mSwipeView.animate().setDuration(100).alpha(1).translationX(0);
+            mSwipeView.setElevation(0);
+            mSwipeView = null;
+        }
+    }
+
+    private void delete(int direction) {
+        mSwipeView.animate().setDuration(100).alpha(0).translationX(direction * mSwipeView.getWidth()).setListener(new Animator.AnimatorListener() {
+            @Override
+            public void onAnimationStart(Animator animator) {
+
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animator) {
+                if(mSwipeView != null) {
+                    mSwipeView.animate().setDuration(100).alpha(1).translationX(0);
+                    mSwipeView = null;
+                }
+            }
+
+            @Override
+            public void onAnimationCancel(Animator animator) {
+                if(mSwipeView != null) {
+                    mSwipeView.animate().setDuration(100).alpha(1).translationX(0);
+                    mSwipeView = null;
+                }
+            }
+
+            @Override
+            public void onAnimationRepeat(Animator animator) {
+
+            }
+        });
     }
 
     protected View getSwipeable(int x, int y) {
         int position = pointToPosition(x, y);
-        if(position != INVALID_POSITION) {
+        if (position != INVALID_POSITION) {
             return getChildAt(position - getFirstVisiblePosition());
         }
         return null;
     }
 
-    public View createFloatView(View v) {
-        // Create a copy of the drawing cache so that it does not get
-        // recycled by the framework when the list tries to clean up memory
-        //v.setDrawingCacheQuality(View.DRAWING_CACHE_QUALITY_HIGH);
-        v.setDrawingCacheEnabled(true);
-        mFloatBitmap = Bitmap.createBitmap(v.getDrawingCache());
-        v.setDrawingCacheEnabled(false);
-
-        if (mImageView == null) {
-            mImageView = new ImageView(getContext());
-        }
-        mImageView.setPadding(0, 0, 0, 0);
-        mImageView.setImageBitmap(mFloatBitmap);
-        mImageView.setLayoutParams(new ViewGroup.LayoutParams(v.getWidth(), v.getHeight()));
-
-        return mImageView;
-    }
 
 }
